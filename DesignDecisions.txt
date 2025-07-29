@@ -1,0 +1,18 @@
+1. Picked std::deque<uint8_t> for the parser’s internal buffer since it provided quick push and pop [O(1)],
+random access iteration in constant time.
+2. VdpParser Class: Main parsing engine with thread-safe buffer management
+3. Frame Structure: Fixed format with start/end bytes, length-based framing
+4. Response Handling: ACK/NAK processing with timeout management
+5. Buffer Management: Persistent deque for handling partial frames across boundaries
+
+Key Design Patterns:
+* State Machine: Frame parsing with resynchronization
+* Callback Pattern: Response handlers for asynchronous processing
+* Producer-Consumer: Feed data in, extract frames out
+* Thread Safety: Mutex-protected operations
+
+Data Flow:
+1. Raw bytes → feed() → Internal buffer
+2. Buffer → extractFrames() → Parsed frames
+3. Frames → Response matching → Callback execution
+4. Timeout checking → Cleanup of expired requests
