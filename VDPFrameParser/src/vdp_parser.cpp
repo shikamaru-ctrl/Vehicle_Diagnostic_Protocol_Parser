@@ -106,7 +106,7 @@ std::vector<ParseResult> VdpParser::extractFrames() {
         // 2. Get frame length and validate.
         uint8_t frame_length = buffer_[1];
         if (frame_length < MIN_FRAME || frame_length > MAX_FRAME) {
-            std::vector<uint8_t> invalid_data(buffer.begin(), buffer.begin() + 2);
+            std::vector<uint8_t> invalid_data(buffer_.begin(), buffer_.begin() + 2);
             results.push_back({ParseStatus::Invalid, {}, "Invalid frame length: " + std::to_string(frame_length), invalid_data});
             buffer_.pop_front(); // Discard the bad 0x7E and rescan.
             continue;
@@ -120,14 +120,14 @@ std::vector<ParseResult> VdpParser::extractFrames() {
 
         // 4. Check for the end marker.
         if (buffer_[frame_length - 1] != END_BYTE) {
-            std::vector<uint8_t> invalid_data(buffer.begin(), buffer.begin() + frame_length);
+            std::vector<uint8_t> invalid_data(buffer_.begin(), buffer_.begin() + frame_length);
             results.push_back({ParseStatus::Invalid, {}, "End marker not found at position: " + std::to_string(frame_length - 1), invalid_data});
             buffer_.pop_front(); // Discard the bad 0x7E and rescan.
             continue;
         }
 
         // 5. Extract the frame and verify checksum.
-        std::vector<uint8_t> frame(buffer.begin(), buffer.begin() + frame_length);
+        std::vector<uint8_t> frame(buffer_.begin(), buffer_.begin() + frame_length);
         std::string checksumDebug;
         if (!verifyChecksum(frame, checksumDebug)) {
             results.push_back({ParseStatus::Invalid, {}, checksumDebug, frame});
@@ -241,7 +241,7 @@ ParseResult VdpParser::sendAndWait(const VdpFrame& frame,
     if (cv.wait_for(lock, timeout_ms, [&] { return response_received; })) {
         return result;
     } else {
-        return {ParseStatus::Timeout, std::nullopt, "Response timeout"};
+        return {ParseStatus::Timeout, std::nullopt, "Response timeout", {}};
     }
 }
 
@@ -302,7 +302,7 @@ void VdpParser::processReceivedFrame(const VdpFrame& frame) {
     auto it = findMatchingRequest(frame);
     if (it != pending_requests_.end()) {
         // Found a matching request, call its handler
-        ParseResult result{ParseStatus::Success, frame, ""};
+        ParseResult result{ParseStatus::Success, frame, "", {}};
         it->second.handler(result);
         it->second.completed = true;
         pending_requests_.erase(it);
@@ -365,13 +365,14 @@ void VdpParser::handleAckNak(const VdpFrame& frame, bool is_ack) {
                     result = {
                         ParseStatus::Error, 
                         frame, 
-                        "ACK with invalid status code: 0x" + to_hex(status)
+                        "ACK with invalid status code: 0x" + to_hex(status),
+                        {}
                     };
                 } else {
-                    result = {ParseStatus::Success, frame, "ACK received"};
+                    result = {ParseStatus::Success, frame, "ACK received", {}};
                 }
             } else {
-                result = {ParseStatus::Success, frame, "ACK received"};
+                result = {ParseStatus::Success, frame, "ACK received", {}};
             }
         } else {
             // NAK handling
@@ -385,7 +386,7 @@ void VdpParser::handleAckNak(const VdpFrame& frame, bool is_ack) {
                     error += " - Invalid status code";
                 }
             }
-            result = {ParseStatus::Nack, frame, error};
+            result = {ParseStatus::Nack, frame, error, {}};
         }
         it->second.handler(result);
         it->second.completed = true;
@@ -422,7 +423,7 @@ void VdpParser::checkTimeouts() {
     for (auto it = pending_requests_.begin(); it != pending_requests_.end(); ) {
         if (now > it->second.timeout_time) {
             // Request timed out
-            ParseResult result{ParseStatus::Timeout, std::nullopt, "Request timed out"};
+            ParseResult result{ParseStatus::Timeout, std::nullopt, "Request timed out", {}};
             it->second.handler(result);
             it = pending_requests_.erase(it);
         } else {

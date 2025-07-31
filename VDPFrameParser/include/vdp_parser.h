@@ -18,7 +18,7 @@
 
 namespace vdp {
     // Frame format: [0x7E][LEN][ECU_ID][CMD][DATA...][CHECKSUM][0x7F]
-    // - LEN includes all bytes (min: 7, max: 255)
+    // - LEN includes all bytes (min: 6, max: 255)
     // - CHECKSUM is XOR of all bytes between START and CHECKSUM (exclusive)
     struct VdpFrame {
         uint8_t ecu_id;             // Target ECU identifier (0x01-0x7F)
@@ -240,8 +240,8 @@ namespace vdp {
         // Frame format constants
         static constexpr uint8_t START_BYTE = 0x7E;
         static constexpr uint8_t END_BYTE   = 0x7F;
-        static constexpr size_t MIN_FRAME   = 7;    // [7E][05][01][01][XX][7F] (min frame with empty data)
-        static constexpr size_t MAX_FRAME   = 253;  // Maximum frame size including start/end bytes
+        static constexpr size_t MIN_FRAME   = 6;    // [7E][LEN][ECU][CMD][CHK][7F] (min frame with no data/status)
+        static constexpr size_t MAX_FRAME   = 255;  // Maximum frame size including start/end bytes
         static constexpr size_t HEADER_SIZE = 4;    // [7E][LEN][ECU][CMD]
         static constexpr size_t FOOTER_SIZE = 2;    // [CHK][7F]
 
