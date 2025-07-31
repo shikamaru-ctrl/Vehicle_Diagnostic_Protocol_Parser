@@ -2,149 +2,55 @@
 
 ## Overview
 
-This document describes the layered architecture design for the VDP Frame Parser system, focusing on separation of concerns, testability, and maintainability while seamlessly integrating with the existing `mobile_bridge.h` interface.
+This document describes the layered architecture design for the VDP[Vehicle Diagnostic Protocol] Frame Parser. The design focuses on separation of concerns, testability, and maintainability, ensuring the core parser is robust and can be seamlessly integrated into a larger protocol engine that connects to the `mobile_bridge.h` interface.
 
-## Architecture Layers
+## Architecture Layers [needs mermaid viewer extension]
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Mobile Platform                          │
-│              (Android / iOS via mobile_bridge.h)           │
-│                 Calls IProtocolEngine methods              │
-└─────────────────────────┬───────────────────────────────────┘
-                          │
-┌─────────────────────────▼───────────────────────────────────┐
-│                 MobileBridgeImpl                            │
-│          Implements mobile_bridge.h::IProtocolEngine       │
-│         Thread-safe wrapper with error handling            │
-└─────────────────────────┬───────────────────────────────────┘
-                          │
-┌─────────────────────────▼───────────────────────────────────┐
-│                    VDPEngine                                │
-│              Protocol-specific implementation               │
-│        (Request/Response matching, Timeouts, etc.)         │
-└─────────────────────────┬───────────────────────────────────┘
-                          │
-┌─────────────────────────▼───────────────────────────────────┐
-│                ProtocolEngineBase                           │
-│         Abstract base: shared logic, transport mgmt        │
-└─────────────────────────┬───────────────────────────────────┘
-                          │
-┌─────────────────────────▼───────────────────────────────────┐
-│                   VdpParser                                 │
-│              Stateless/streaming parser                     │
-│           (Frame parsing, validation, etc.)                │
-└─────────────────────────┬───────────────────────────────────┘
-                          │
-┌─────────────────────────▼───────────────────────────────────┐
-│                  ITransport                                 │
-│            (CAN, DoIP, Bluetooth, Mock)                     │
-└─────────────────────────────────────────────────────────────┘
-```
+```mermaid
+graph TD
+    subgraph "Mobile Platform (Consumer)"
+        A[Android / iOS Application]
+    end
 
-## Key Design Principles
+    subgraph "Bridge Layer (Interface)"
+        B(IProtocolEngine / mobile_bridge.h)
+    end
 
-### 1. Separation of Concerns
+    subgraph "Protocol Engine (Future Work)"
+        C{ProtocolEngineBase}
+        D[VDPEngine]
+        E[... other protocols ...]
+        C --> D
+        C --> E
+    end
 
-**Transport Layer (`ITransport`)**
-- **Responsibility**: Raw data transmission/reception
-- **Abstraction**: Hardware-specific communication details
-- **Implementations**: CAN, DoIP, Bluetooth, Serial, Mock (for testing)
+    subgraph "Parser Layer (Implemented & Robust)"
+        F(VdpParser)
+    end
 
-**Parser Layer (`VdpParser`)**
-- **Responsibility**: Frame parsing and validation
-- **Stateless**: No protocol logic, pure parsing
-- **Reusable**: Can be used by any protocol engine
+    subgraph "Transport Layer (Interface)"
+        G(ITransport)
+        H[CAN]
+        J[MockTransport]
+        G --> H & J
+    end
 
-**Protocol Layer (`VDPEngine`)**
-- **Responsibility**: VDP-specific protocol logic
-- **Features**: Request/response matching, timeouts, ACK/NAK handling
-- **Extensible**: Easy to add other protocols (UDS, etc.)
+    A --> B
+    B --> C
+    D --> F
+    F --> G
 
-**Bridge Layer (`MobileBridgeImpl`)**
-- **Responsibility**: Mobile platform integration
-- **Thread Safety**: Handles concurrent calls from mobile platforms
-- **Error Mapping**: Converts internal errors to mobile-friendly format
-
-### 2. Testability
-
-**Dependency Injection**
-```cpp
-// Easy to inject mock transport for testing
-auto engine = std::make_unique<VDPEngine>(
-    std::make_unique<MockTransport>()
-);
+    style F fill:#cfc,stroke:#333,stroke-width:2px,font-weight:bold
 ```
 
-**Isolated Testing**
-- Each layer can be tested independently
-- Mock transport simulates hardware without dependencies
-- Protocol logic tested without actual communication
+## Current Implementation Status
 
-**Comprehensive Test Coverage**
-- Unit tests for each component
-- Integration tests for full stack
-- Thread safety tests for concurrent operations
-- Error handling and recovery tests
+The current focus of this project has been to build a **robust and reliable `VdpParser`**. The `Parser Layer` is tested to handle:
+- Valid frame parsing and data extraction.
+- A comprehensive set of error conditions (invalid checksum, length, markers).
+- Stream resynchronization after encountering garbage data.
 
-### 3. Maintainability
-
-**Clear Interfaces**
-- Each layer has well-defined responsibilities
-- Minimal coupling between layers
-- Easy to modify or replace individual components
-
-**Template Method Pattern**
-```cpp
-class ProtocolEngineBase {
-protected:
-    virtual void onFrameReceived(const VdpFrame& frame) = 0;
-    virtual void onParseError(const std::string& error) = 0;
-    // Subclasses implement protocol-specific logic
-};
-```
-
-**Factory Pattern for Transport**
-```cpp
-auto transport = TransportFactory::create(TransportFactory::Type::CAN);
-```
-
-## Mobile Integration
-
-### Seamless Compatibility
-
-The design maintains **100% compatibility** with the existing `mobile_bridge.h` interface:
-
-```cpp
-// Existing mobile code continues to work unchanged
-auto* engine = createProtocolEngine();
-engine->initialize("/dev/ttyUSB0");
-
-Frame frame(0x01, 0x10);
-Response response = engine->sendFrame(frame, 1000);
-
-if (response.isSuccess()) {
-    // Process response
-}
-```
-
-### Enhanced Features
-
-**Thread Safety**
-- All operations are thread-safe
-- Mobile platforms can call from any thread
-- Internal synchronization handles concurrent access
-
-**Better Error Handling**
-- Detailed error messages for debugging
-- Graceful degradation on failures
-- Automatic recovery mechanisms
-
-**Transport Selection**
-```cpp
-// Optional: Select transport type at runtime
-auto* engine = createProtocolEngineWithTransport(TRANSPORT_BLUETOOTH);
-```
+The other layers (`Protocol Engine`, `Transport`) represent the future direction and are not yet implemented. This modular design ensures that the hardened `VdpParser` can be integrated into the full protocol stack in the future.
 
 ## Benefits of This Architecture
 
@@ -168,217 +74,52 @@ auto* engine = createProtocolEngineWithTransport(TRANSPORT_BLUETOOTH);
 - Minimal data copying
 - Asynchronous operations where beneficial
 
-### 5. **Mobile Platform Support**
-- Thread-safe operations
-- Stable C interface
-- Error handling suitable for mobile apps
-
-## Design Tradeoffs
-
-### **Complexity vs. Simplicity**
-
-**❌ Increased Complexity**
-- **More Files**: 5+ new header files vs. original single parser
-- **More Interfaces**: Multiple abstraction layers to understand
-- **Learning Curve**: Developers need to understand layered architecture
-- **Build Complexity**: More dependencies and compilation units
-
-**✅ Managed Complexity**
-- **Clear Boundaries**: Each layer has well-defined responsibilities
-- **Documentation**: Comprehensive docs and examples provided
-- **Gradual Adoption**: Can implement layers incrementally
-- **IDE Support**: Modern IDEs handle multiple files well
-
-### **Performance vs. Flexibility**
-
-**❌ Performance Overhead**
-- **Virtual Function Calls**: Interface abstractions add slight overhead (~1-2ns per call)
-- **Memory Allocation**: Dynamic allocation for transport/engine objects
-- **Indirection**: Extra pointer dereferences through interfaces
-- **Template Instantiation**: Compile-time overhead for generic components
-
-**✅ Performance Optimizations**
-- **Zero-Copy Parsing**: Parser operates on raw buffers without copying
-- **Efficient Containers**: `std::deque` for O(1) operations
-- **Minimal Allocations**: Reuse of frame objects and buffers
-- **Async Operations**: Non-blocking I/O where possible
-
-**Performance Analysis:**
-```cpp
-// Overhead measurement (typical modern CPU):
-// Direct function call:     ~0.5ns
-// Virtual function call:    ~1.5ns  (+1ns overhead)
-// Interface + indirection:  ~2.5ns  (+2ns overhead)
-
-// For diagnostic protocols (typically 10-100 Hz), this is negligible
-```
-
-### **Memory Usage vs. Features**
-
-**❌ Increased Memory Footprint**
-- **Multiple Objects**: Engine + Transport + Parser instances
-- **Virtual Tables**: Each interface adds vtable overhead (~8-16 bytes per object)
-- **Request Tracking**: Maps for pending requests and timeouts
-- **Thread Safety**: Mutexes and atomic variables
-
-**✅ Memory Efficiency**
-- **Shared Resources**: Common buffers and parsers reused
-- **Smart Pointers**: Automatic memory management prevents leaks
-- **Configurable**: Can disable features not needed (e.g., async support)
-- **Small Footprint**: Core parser remains lightweight
-
-**Memory Comparison:**
-```
-Original VdpParser:           ~1KB (parser + buffer)
-New Architecture:             ~5KB (all layers + overhead)
-Mobile App Context:           ~100MB+ (negligible impact)
-Embedded Context:             May need consideration
-```
-
-### **Compile Time vs. Runtime Flexibility**
-
-**❌ Longer Compilation**
-- **Template Instantiation**: Generic components increase compile time
-- **Header Dependencies**: More includes and forward declarations
-- **Link Time**: More object files to link together
-
-**✅ Runtime Benefits**
-- **Dynamic Transport Selection**: Choose transport at runtime
-- **Plugin Architecture**: Load protocol modules dynamically
-- **Configuration**: Runtime configuration vs. compile-time constants
-
-### **Development Speed vs. Long-term Maintenance**
-
-**❌ Initial Development Overhead**
-- **More Boilerplate**: Interface implementations require more code
-- **Testing Complexity**: More components to test individually
-- **Integration Effort**: Ensuring all layers work together
-
-**✅ Long-term Productivity**
-- **Parallel Development**: Teams can work on different layers independently
-- **Easier Debugging**: Clear boundaries help isolate issues
-- **Faster Feature Addition**: New protocols/transports are straightforward
-- **Reduced Regression Risk**: Changes isolated to specific layers
-
-### **Backward Compatibility vs. Clean Design**
-
-**❌ Legacy Constraints**
-- **Interface Limitations**: Must support existing `mobile_bridge.h` API
-- **Error Code Mapping**: Converting between internal and external error types
-- **Threading Model**: Must handle mobile platform threading requirements
-
-**✅ Evolution Path**
-- **Gradual Migration**: Can migrate mobile code incrementally
-- **Version Compatibility**: Old and new APIs can coexist
-- **Future-Proofing**: Architecture supports future enhancements
-
-### **Testing Overhead vs. Quality Assurance**
-
-**❌ More Test Code**
-- **Layer Testing**: Each layer needs comprehensive tests
-- **Integration Testing**: Full-stack tests more complex
-- **Mock Maintenance**: Mock objects need to stay in sync with real implementations
-
-**✅ Higher Quality**
-- **Isolated Testing**: Bugs easier to locate and fix
-- **Hardware Independence**: Can test without physical devices
-- **Continuous Integration**: Automated testing more reliable
-
-## When to Use This Architecture
-
-### **✅ Recommended For:**
-- **Production Systems**: Where reliability and maintainability are critical
-- **Multi-Protocol Support**: Need to support multiple diagnostic protocols
-- **Team Development**: Multiple developers working on different components
-- **Long-term Projects**: Systems that will be maintained for years
-- **Mobile Integration**: Apps requiring stable, thread-safe interfaces
-
-### **❌ Consider Alternatives For:**
-- **Prototypes**: Quick proof-of-concept implementations
-- **Single-Use Tools**: One-off diagnostic utilities
-- **Resource-Constrained Embedded**: Microcontrollers with <32KB RAM
-- **Simple Applications**: Only need basic frame parsing
-- **Legacy Code**: Existing systems with tight coupling
-
 ## Implementation Status
 
-### ✅ Completed
+### Completed
 - Core parser (`VdpParser`) with comprehensive tests
 - Interface definitions (`ITransport`, `IProtocolEngine`)
 - Architecture design and documentation
 
-### 🚧 In Progress
+### Next Steps
 - Protocol engine implementations
 - Mobile bridge implementation
 - Mock transport for testing
 
-### 📋 Planned
+### For Future
 - Real transport implementations (CAN, Serial, etc.)
 - Performance optimizations
 - Additional protocol support
 
 ## Usage Examples
 
-### Basic Usage (Mobile Platform)
-```cpp
-#include "mobile_bridge.h"
+### Command-Line Tool Usage
 
-// Create engine
-auto* engine = createProtocolEngine();
-engine->initialize("/dev/ttyUSB0");
+The project includes a command-line executable for parsing VDP frames directly from a hex file. Each line in the file should contain hex characters representing the byte stream.
 
-// Send frame
-Frame request(0x01, 0x10);
-request.data = {0x12, 0x34};
+1.  **Build the project** to generate the `VDPFrameParser.exe` executable.
 
-Response response = engine->sendFrame(request, 1000);
-if (response.isSuccess()) {
-    // Process response data
-}
+2.  **Run the executable** from your terminal. You can provide a path to a hex file or let it use the default `sample_frames.hex`.
 
-// Cleanup
-destroyProtocolEngine(engine);
+**Example Command:**
+```sh
+# Run with the default sample file
+./VDPFrameParser.exe
+
+# Run with a specific file
+./VDPFrameParser.exe path/to/your/frames.hex
 ```
 
-### Async Usage
-```cpp
-engine->sendFrameAsync(request,
-    [](const Response& response) {
-        // Success callback
-        if (response.isSuccess()) {
-            // Handle response
-        }
-    },
-    [](const std::string& error) {
-        // Error callback
-        LOG_ERROR("Frame send failed: " + error);
-    }
-);
+**Expected Output:**
+
+The tool will print the raw bytes of each processed frame and its status (either a valid frame or an error with a reason).
+
 ```
+Raw bytes: 7E 07 01 10 00 01 88 7F 
+Status: Valid frame
 
-### Testing with Mock Transport
-```cpp
-#include "mobile_bridge_impl.h"
+Raw bytes: 7E 
+Status: ERROR. Reason: Invalid frame length: 0. Must be between 6 and 255.
 
-// Create with mock transport
-auto bridge = std::make_unique<MobileBridgeImpl>(
-    TransportFactory::Type::MOCK
-);
-
-bridge->initialize("mock://test");
-
-// Test operations without hardware
-Frame test_frame(0x01, 0x10);
-Response response = bridge->sendFrame(test_frame, 1000);
-ASSERT_TRUE(response.isSuccess());
+...
 ```
-
-## Conclusion
-
-This architecture provides a robust, testable, and maintainable foundation for the VDP Frame Parser while maintaining seamless compatibility with existing mobile platform code. The layered design allows for easy extension and modification while ensuring each component has clear responsibilities and minimal coupling.
-
-This layered architecture represents a **strategic investment** in the long-term success of the VDP Frame Parser system. While it introduces some complexity and overhead, the benefits of maintainability, testability, and extensibility far outweigh the costs for production diagnostic systems.
-
-The design prioritizes **developer productivity** and **system reliability** over raw performance, which is appropriate for diagnostic protocols where correctness and maintainability are more important than microsecond-level optimizations.
-
-For teams building production diagnostic tools, mobile applications, or multi-protocol systems, this architecture provides a solid foundation that will scale with growing requirements and team size.

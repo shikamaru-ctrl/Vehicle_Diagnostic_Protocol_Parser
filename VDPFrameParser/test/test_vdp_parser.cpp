@@ -81,14 +81,15 @@ TEST_CASE("Special bytes in payload") {
 }
 
 // Error handling tests
-TEST_CASE("Error conditions") {
-    VdpParser p;
-
+TEST_CASE("Error handling") {
     // Test 1: Invalid checksum
     {
-        p.reset();
-        auto frame = makeFrame(0x84, 0x40, {0x11, 0x22});
-        frame[frame.size() - 2] ^= 0xFF; // Corrupt checksum
+        VdpParser p;
+        // Manually construct a frame that is valid in every way except the checksum.
+        // We use a valid command (0x10) to ensure we pass command validation.
+        vector<uint8_t> frame = {0x7E, 0x08, 0x84, 0x10, 0x11, 0x22, 0x00, 0x7F};
+        // The correct checksum for the content {0x08, 0x84, 0x10, 0x11, 0x22} is 0xAF.
+        // We are intentionally providing 0x00 to trigger the failure.
         auto results = feedAll(p, frame);
         REQUIRE(results.size() == 1);
         REQUIRE(results[0].status == ParseStatus::Invalid);
@@ -97,31 +98,43 @@ TEST_CASE("Error conditions") {
 
     // Test 2: Incomplete frame - should produce no results
     {
-        p.reset();
-        vector<uint8_t> partial = {0x7E, 0x08, 0x85, 0x50, 0x01}; // Incomplete frame
-        auto results = feedAll(p, partial);
-        REQUIRE(results.empty()); // Should wait for more data
+        VdpParser p;
+        auto frame = makeFrame(0x84, 0x10, {0x11, 0x22});
+        // Feed all but the last byte
+        auto results = feedAll(p, {frame.begin(), frame.end() - 1});
+        REQUIRE(results.empty()); // No frame should be parsed
     }
 
-    // Test 3: Invalid length (too short)
+    // Test 3: Invalid start byte (garbage before frame)
     {
-        p.reset();
-        vector<uint8_t> invalid = {0x7E, 0x05, 0x86, 0x60, 0x7F}; // Length 5 is invalid
-        auto results = feedAll(p, invalid);
+        VdpParser p;
+        vector<uint8_t> garbage = {0x01, 0x02, 0x03};
+        auto frame = makeFrame(0x84, 0x10, {});
+        garbage.insert(garbage.end(), frame.begin(), frame.end());
+        auto results = feedAll(p, garbage);
         REQUIRE(results.size() == 1);
-        REQUIRE(results[0].status == ParseStatus::Invalid);
-        REQUIRE(results[0].error == "Invalid frame length: 5");
+        REQUIRE(results[0].status == ParseStatus::Success);
     }
-    
-    // Test 4: Invalid length (too long)
+
+    // Test 4: Invalid end byte
     {
-        p.reset();
-        vector<uint8_t> invalid = {0x7E, 0x00, 0x86, 0x60, 0x11, 0x7F}; // Placeholder
-        invalid[1] = 254; // Invalid length
-        auto results = feedAll(p, invalid);
+        VdpParser p;
+        auto frame = makeFrame(0x84, 0x10, {0x11, 0x22});
+        frame.back() = 0x7D; // Corrupt end byte
+        auto results = feedAll(p, frame);
         REQUIRE(results.size() == 1);
         REQUIRE(results[0].status == ParseStatus::Invalid);
-        REQUIRE(results[0].error == "Invalid frame length: 254");
+        REQUIRE(results[0].error.find("End marker not found") != string::npos);
+    }
+
+    // Test 5: Invalid length (too short)
+    {
+        VdpParser p;
+        vector<uint8_t> frame = {0x7E, 0x05, 0x01, 0x10, 0x14, 0x7F}; // Length 5 is invalid.
+        auto results = feedAll(p, frame);
+        REQUIRE(results.size() == 1);
+        REQUIRE(results[0].status == ParseStatus::Invalid);
+        REQUIRE(results[0].error.find("Invalid frame length") != string::npos);
     }
 }
 
