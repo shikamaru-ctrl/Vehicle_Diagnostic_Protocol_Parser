@@ -34,3 +34,6 @@
 
 # Partial frame at buffer end (simulating real-world streaming)
 7E0801100001187F7E0A811000
+
+#continuation
+123456EB7F

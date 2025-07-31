@@ -47,76 +47,43 @@ int main(int argc, char* argv[]) {
 
     vdp::VdpParser parser;
     std::string line;
-    size_t line_num = 1;
 
     while (std::getline(in, line)) {
-        // Skip empty lines and comments
-        if (line.empty() || line[0] == '#') {
-            ++line_num;
-            continue;
-        }
-
-        // Print the input line being processed
-        std::cout << "\nLine " << line_num << ": " << line << std::endl;
-        
-        // Convert hex string to bytes
         auto bytes = hexLineToBytes(line);
         if (bytes.empty()) {
-            std::cout << "  => No valid hex data found\n";
-            ++line_num;
             continue;
         }
 
-        // Print the raw bytes being processed
-        std::cout << "  Raw bytes: ";
-        for (auto b : bytes) {
-            std::cout << std::hex << std::uppercase << std::setw(2) << std::setfill('0') 
-                     << (int)b << " ";
-        }
-        std::cout << std::dec << std::endl;
-
-        // Feed the bytes to the parser
         parser.feed(bytes.data(), bytes.size());
         auto results = parser.extractFrames();
 
-        // Process and display results
-        if (results.empty()) {
-            std::cout << "  => No complete frames found (buffer may be waiting for more data)\n";
-        } else {
-            for (size_t i = 0; i < results.size(); ++i) {
-                const auto& r = results[i];
-                std::cout << "  Frame " << (i+1) << ": ";
-                
-                switch (r.status) {
-                    case vdp::ParseStatus::Success: {
-                        const auto& f = *r.frame;
-                        std::cout << "SUCCESS  ";
-                        std::cout << "ECU=0x" << std::hex << (int)f.ecu_id << " ";
-                        std::cout << "CMD=0x" << (int)f.command << " ";
-                        if (!f.data.empty()) {
-                            std::cout << "DATA=[";
-                            for (size_t j = 0; j < f.data.size(); ++j) {
-                                std::cout << std::hex << std::setw(2) << std::setfill('0') 
-                                         << (int)f.data[j];
-                                if (j < f.data.size() - 1) std::cout << " ";
-                            }
-                            std::cout << "] ";
-                        }
-                        std::cout << std::dec;
-                        break;
-                    }
-                    case vdp::ParseStatus::Incomplete:
-                        std::cout << "INCOMPLETE: " << r.error;
-                        break;
-                    case vdp::ParseStatus::Invalid:
-                        std::cout << "INVALID: " << r.error;
-                        break;
+        if (!results.empty()) {
+            for (const auto& r : results) {
+                std::cout << "Raw bytes: ";
+                for (auto b : r.raw_bytes) {
+                    std::cout << std::hex << std::uppercase << std::setw(2) << std::setfill('0')
+                              << (int)b << " ";
                 }
-                std::cout << std::endl;
+                std::cout << std::dec << std::endl;
+
+                std::cout << "Status: ";
+                switch (r.status) {
+                case vdp::ParseStatus::Success: {
+                    std::cout << "Valid frame" << std::endl;
+                    break;
+                }
+                case vdp::ParseStatus::Invalid: {
+                    std::cout << "ERROR. Reason: " << r.error << std::endl;
+                    break;
+                }
+                default: {
+                    // Other statuses like Incomplete are not expected here based on current parser logic
+                    break;
+                }
+                }
+                std::cout << std::endl; // Add a blank line for readability
             }
         }
-        
-        ++line_num;
     }
 
     return 0;

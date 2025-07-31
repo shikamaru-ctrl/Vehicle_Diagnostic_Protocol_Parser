@@ -32,33 +32,80 @@ namespace vdp {
         Incomplete, // need more bytes
         Invalid,    // malformed frame
         Timeout,    // response timeout
-        Nack        // negative acknowledgment
+        Nack,       // negative acknowledgment
+        Error       // general error
     };
+
+    // Response status codes
+    enum class ResponseStatus : uint8_t {
+        Success = 0x00,      // Operation successful
+        InvalidCommand = 0x01, // Invalid command
+        InvalidData = 0x02,  // Invalid data
+        EcuBusy = 0x03,     // ECU busy
+        GeneralError = 0xFF, // General error
+        InvalidStatus = 0x80 // Invalid status code
+    };
+
+    // Constants for response frame handling
+    static constexpr uint8_t RESPONSE_ECU_ID_MASK = 0x80; // Bitmask for response ECU_ID
+    static constexpr uint8_t MIN_STATUS_CODE = 0x00;
+    static constexpr uint8_t MAX_STATUS_CODE = 0xFF;
 
     // Command types
     enum class CommandType : uint8_t {
-        Acknowledge = 0x06,     // ACK
-        NegativeAck = 0x15,     // NAK
-        // Add more command types as needed
+        // Standard VDP commands
+        ReadData = 0x10,       // READ_DATA - Read diagnostic data
+        WriteData = 0x20,      // WRITE_DATA - Write configuration
+        ClearCodes = 0x30,     // CLEAR_CODES - Clear error codes
+        EcuReset = 0x40,       // ECU_RESET - Reset ECU
+        KeepAlive = 0x50,      // KEEP_ALIVE - Maintain connection
+        
+        // Protocol control commands
+        Acknowledge = 0x06,    // ACK
+        NegativeAck = 0x15     // NAK
     };
+    
+    /**
+     * @brief Check if a command byte is valid
+     * @param command The command byte to validate
+     * @return true if the command is valid, false otherwise
+     */
+    static bool isValidCommand(uint8_t command) {
+        switch (static_cast<CommandType>(command)) {
+            case CommandType::ReadData:
+            case CommandType::WriteData:
+            case CommandType::ClearCodes:
+            case CommandType::EcuReset:
+            case CommandType::KeepAlive:
+            case CommandType::Acknowledge:
+            case CommandType::NegativeAck:
+                return true;
+            default:
+                return false;
+        }
+    }
 
     // Result of parsing: status + optional frame + error message
     struct ParseResult {
         ParseStatus status;
         std::optional<VdpFrame> frame;
         std::string error;
+        std::vector<uint8_t> raw_bytes;
         std::chrono::system_clock::time_point timestamp;
         
         // Default constructor with current timestamp
         ParseResult() : status(ParseStatus::Invalid), timestamp(std::chrono::system_clock::now()) {}
         
         // Constructor with parameters
-        ParseResult(ParseStatus s, const std::optional<VdpFrame>& f, const std::string& e)
-            : status(s), frame(f), error(e), timestamp(std::chrono::system_clock::now()) {}
+        ParseResult(ParseStatus s, const std::optional<VdpFrame>& f, const std::string& e, const std::vector<uint8_t>& rb)
+            : status(s), frame(f), error(e), raw_bytes(rb), timestamp(std::chrono::system_clock::now()) {}
     };
     
     // Response handler function type
     using ResponseHandler = std::function<void(const ParseResult&)>;
+    
+    // Send callback type
+    using SendCallback = std::function<void(const uint8_t* data, size_t len)>;
     
     // Pending request information
     struct PendingRequest {
@@ -129,10 +176,32 @@ namespace vdp {
         void checkTimeouts();
         
         // Generate an ACK frame for the given frame
-        static VdpFrame createAckFrame(const VdpFrame& frame);
+        VdpFrame createAckFrame(const VdpFrame& frame);
         
         // Generate a NAK frame for the given frame with optional error code
-        static VdpFrame createNakFrame(const VdpFrame& frame, uint8_t error_code = 0);
+        VdpFrame createNakFrame(const VdpFrame& frame, uint8_t error_code = 0x01);
+        
+        // Helper to find the next start byte in the buffer
+        size_t findNextStartByte() const;
+        
+        // Helper to check if frame is taking too long
+        bool isFrameTakingTooLong() const;
+        
+        // Helper to reset frame parsing state
+        void resetFrameState();
+        
+        /**
+         * @brief Serialize a VdpFrame into a byte vector
+         * @param frame The frame to serialize
+         * @param out Output vector for the serialized data
+         */
+        void serializeFrame(const VdpFrame& frame, std::vector<uint8_t>& out) const;
+        
+        /**
+         * @brief Set the send callback for sending responses
+         * @param callback The callback function to use for sending data
+         */
+        void setSendCallback(SendCallback callback) { send_callback_ = std::move(callback); }
 
     private:
         // Internal buffer for incoming data
@@ -149,6 +218,12 @@ namespace vdp {
         
         // Last used sequence number
         std::atomic<uint8_t> last_sequence_{0};
+        
+        // Callback for sending data
+        SendCallback send_callback_;
+        // Frame parsing state
+        bool frame_started_ = false;
+        std::chrono::steady_clock::time_point last_frame_start_;
         
         // Process a received frame and match it with pending requests
         void processReceivedFrame(const VdpFrame& frame);
@@ -179,5 +254,5 @@ namespace vdp {
         // @return true if checksum is valid, false otherwise
         bool verifyChecksum(const std::vector<uint8_t>& frame, std::string& debugOutput) const;
     };
-} //namespace vdp end
+} // namespace vdp
 #endif //VDP_PARSER_H

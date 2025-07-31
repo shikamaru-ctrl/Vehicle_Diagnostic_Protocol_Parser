@@ -206,8 +206,9 @@ TEST_CASE("Mock Transport Functionality") {
         std::vector<uint8_t> auto_response = {0x7E, 0x07, 0x81, 0x10, 0x00, 0x12, 0x7F};
         transport.setAutoResponse(true, auto_response);
         
-        // Send request
-        std::vector<uint8_t> request = {0x7E, 0x06, 0x01, 0x10, 0x34, 0x7F};
+        // Send request - using valid 7-byte frame
+        // Frame format: [7E][07][ECU][CMD][STATUS][CHK][7F] (7 bytes total, length=7)
+        std::vector<uint8_t> request = {0x7E, 0x07, 0x01, 0x10, 0x01, 0x17, 0x7F};
         REQUIRE(transport.send(request.data(), request.size()));
         
         // Should automatically receive response
