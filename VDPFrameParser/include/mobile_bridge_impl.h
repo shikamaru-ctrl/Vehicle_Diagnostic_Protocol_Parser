@@ -1,6 +1,6 @@
 #pragma once
 
-#include "mobile_bridge.h"
+#include "../../mobile_bridge.h"
 #include "protocol_engine.h"
 #include "transport_interface.h"
 #include <memory>

@@ -258,3 +258,104 @@ TEST_CASE("Frame with incorrect end marker") {
     REQUIRE(results[1].status == ParseStatus::Success);
     REQUIRE(results[1].frame->ecu_id == 0x02);
 }
+
+// New test cases for improved robustness
+
+TEST_CASE("extractFrames is idempotent") {
+    VdpParser p;
+    auto frame = makeFrame(0x99, 0x99, {0x01, 0x02});
+
+    // Feed the frame and extract it
+    auto res1 = feedAll(p, frame);
+    REQUIRE(res1.size() == 1);
+    REQUIRE(res1[0].status == ParseStatus::Success);
+
+    // Calling extract again with no new data should yield nothing
+    auto res2 = p.extractFrames();
+    REQUIRE(res2.empty());
+}
+
+TEST_CASE("Explicit KeepAlive frame") {
+    VdpParser p;
+    // A standard KeepAlive frame is typically ECU 0, CMD 0, no data.
+    // Frame: 7E LEN ECU CMD ... CHK 7F
+    // Content for checksum: LEN, ECU, CMD -> 0x06, 0x00, 0x00
+    // Checksum: 0x06 ^ 0x00 ^ 0x00 = 0x06
+    vector<uint8_t> keep_alive = {0x7E, 0x06, 0x00, 0x00, 0x06, 0x7F};
+    auto res = feedAll(p, keep_alive);
+    REQUIRE(res.size() == 1);
+    REQUIRE(res[0].status == ParseStatus::Success);
+    REQUIRE(res[0].frame->ecu_id == 0x00);
+    REQUIRE(res[0].frame->command == 0x00);
+    REQUIRE(res[0].frame->data.empty());
+}
+
+TEST_CASE("Maximum size frame") {
+    VdpParser p;
+    // Max frame size is 253. Header/footer is 6 bytes, so max payload is 247.
+    vector<uint8_t> big_payload(247, 0xAB);
+    auto frame = makeFrame(0xFF, 0x01, big_payload); // 0xFF is ECU ID
+    REQUIRE(frame.size() == 253);
+
+    auto res = feedAll(p, frame);
+    REQUIRE(res.size() == 1);
+    REQUIRE(res[0].status == ParseStatus::Success);
+    REQUIRE(res[0].frame->data.size() == 247);
+    REQUIRE(res[0].frame->data == big_payload);
+}
+
+TEST_CASE("Truncated frame") {
+    VdpParser p;
+    auto frame = makeFrame(0x01, 0x10, {0x12, 0x34, 0x56});
+    frame.pop_back(); // Remove the last byte (end marker)
+    auto res = feedAll(p, frame);
+    REQUIRE(res.empty()); // Should not produce any result
+}
+
+TEST_CASE("Thread safety with concurrent feed and extract") {
+    VdpParser parser;
+    std::vector<VdpFrame> produced_frames;
+    std::vector<VdpFrame> consumed_frames;
+    const int num_frames_to_test = 50;
+
+    // Create some frames to test with
+    for (int i = 0; i < num_frames_to_test; ++i) {
+        produced_frames.push_back({(uint8_t)i, (uint8_t)(i+1), {(uint8_t)(i+2), (uint8_t)(i+3)}});
+    }
+
+    std::thread producer([&]() {
+        for (const auto& f : produced_frames) {
+            auto frame_bytes = makeFrame(f.ecu_id, f.command, f.data);
+            parser.feed(frame_bytes.data(), frame_bytes.size());
+            // Small delay to allow consumer to run
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+    });
+
+    std::thread consumer([&]() {
+        int frames_found = 0;
+        while (frames_found < num_frames_to_test) {
+            auto results = parser.extractFrames();
+            for (const auto& res : results) {
+                if (res.status == ParseStatus::Success) {
+                    consumed_frames.push_back(*res.frame);
+                    frames_found++;
+                }
+            }
+            // Small delay to allow producer to run
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    });
+
+    producer.join();
+    consumer.join();
+
+    REQUIRE(consumed_frames.size() == num_frames_to_test);
+
+    // Verify data integrity
+    for (int i = 0; i < num_frames_to_test; ++i) {
+        REQUIRE(consumed_frames[i].ecu_id == produced_frames[i].ecu_id);
+        REQUIRE(consumed_frames[i].command == produced_frames[i].command);
+        REQUIRE(consumed_frames[i].data == produced_frames[i].data);
+    }
+}

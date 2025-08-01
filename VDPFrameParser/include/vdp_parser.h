@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <deque>
+#include <utility>
 #include <vector>
 #include <optional>
 #include <string>
@@ -97,8 +98,8 @@ namespace vdp {
         ParseResult() : status(ParseStatus::Invalid), timestamp(std::chrono::system_clock::now()) {}
         
         // Constructor with parameters
-        ParseResult(ParseStatus s, const std::optional<VdpFrame>& f, const std::string& e, const std::vector<uint8_t>& rb)
-            : status(s), frame(f), error(e), raw_bytes(rb), timestamp(std::chrono::system_clock::now()) {}
+        ParseResult(ParseStatus s, const std::optional<VdpFrame>& f, std::string  e, const std::vector<uint8_t>& rb)
+            : status(s), frame(f), error(std::move(e)), raw_bytes(rb), timestamp(std::chrono::system_clock::now()) {}
     };
     
     // Response handler function type
@@ -240,13 +241,10 @@ namespace vdp {
         // Frame format constants
         static constexpr uint8_t START_BYTE = 0x7E;
         static constexpr uint8_t END_BYTE   = 0x7F;
-        static constexpr size_t MIN_FRAME   = 6;    // [7E][LEN][ECU][CMD][CHK][7F] (min frame with no data/status)
-        static constexpr size_t MAX_FRAME   = 255;  // Maximum frame size including start/end bytes
+        static constexpr size_t MIN_FRAME_LEN   = 6;    // [7E][LEN][ECU][CMD][CHK][7F] (min frame with no data/status)
+        static constexpr size_t MAX_FRAME_LEN   = 253;  // Maximum frame size including start/end bytes
         static constexpr size_t HEADER_SIZE = 4;    // [7E][LEN][ECU][CMD]
         static constexpr size_t FOOTER_SIZE = 2;    // [CHK][7F]
-
-        // Try parse one frame; return {status, optional frame, error}.
-        ParseResult parseOne();
         
         // Verify checksum for a complete frame
         // @param frame The frame to verify

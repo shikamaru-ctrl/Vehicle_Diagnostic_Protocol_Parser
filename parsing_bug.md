@@ -55,3 +55,14 @@ while (buffer.hasData()) {
 
 ## Mobile Team's Question
 "Could this be related to how the C++ parser handles partial frames in the buffer? We're calling the parser from a background thread on Android, while iOS calls it from the main thread. Also, we're not sure if we should be calling processIncomingData or sendRawData for incoming bytes - the documentation isn't clear."
+
+## Root Cause Analysis
+- Check the logs. From the logs it is evident that the frames are batched, and the 2nd frame is not complete!
+- From the code, the parser logic `parseFrame(buffer)` assumes a valid frame is returned if the sync byte is found, but from the logs we can see that the partial 2nd frame is causing parsing issues. This explains that the parsing logic is not robust in handling the scenario. 
+- The the device behaviour, it is evident that it works only on IOS, most probaly since it is single threaded, and the partial incomplete frame scenario does not occur! While on Android,  background thread is likely triggered as soon as any data arrives, even if it's just a partial frame. Also it is said that the delay helps, which confirms the analysis, that if given enough time, the whole frames are received, no premature parsing happens and the issue does not occur.
+
+## Solution
+This is solved in the VDP Parser. In brief, if parseFrame() fails, consume only one byte and check for the next start marker. Buffer the bytes based on length. Avoid skipping or clearing the buffer unless you're sure it's invalid.
+Continuously feed() the parser all incoming data from the network.
+Call extractFrames() after every feed to pull out any frames that have been completed.
+Also add detailed documentation on the exposed public APIs, so that it is easier for the consumer of the APIs.

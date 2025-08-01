@@ -105,7 +105,7 @@ std::vector<ParseResult> VdpParser::extractFrames() {
 
         // 2. Get frame length and validate.
         uint8_t frame_length = buffer_[1];
-        if (frame_length < MIN_FRAME || frame_length > MAX_FRAME) {
+        if (frame_length < MIN_FRAME_LEN || frame_length > MAX_FRAME_LEN) {
             std::vector<uint8_t> invalid_data(buffer_.begin(), buffer_.begin() + 2);
             results.push_back({ParseStatus::Invalid, {}, "Invalid frame length: " + std::to_string(frame_length), invalid_data});
             buffer_.pop_front(); // Discard the bad 0x7E and rescan.
@@ -139,9 +139,7 @@ std::vector<ParseResult> VdpParser::extractFrames() {
         VdpFrame vdp_frame;
         vdp_frame.ecu_id = frame[2];
         vdp_frame.command = frame[3];
-        if (frame.size() > 7) {
-            vdp_frame.data.assign(frame.begin() + 4, frame.end() - 2);
-        }
+        vdp_frame.data.assign(frame.begin() + 4, frame.end() - 2);
         results.push_back({ParseStatus::Success, vdp_frame, "", frame});
 
         // 7. Remove the processed frame from the buffer.
