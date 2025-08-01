@@ -20,9 +20,3 @@ This file provides a comprehensive overview of the VDPFrameParser's architecture
 
 ### `initial_archdiagram.png`
 This image file contains the initial architecture diagram that was created for the project's approval phase. It offers a high-level visual representation of the original design concept.
-
-### `parsing_bug.md`
-This document details a high-severity parsing bug reported by the mobile team. It includes a full root cause analysis of the issue, which was specific to Android devices, and outlines the suggested solution that was implemented in the current version of the parser.
-
-### `mobile_bridge_review.md`
-This file contains a review of the mobile bridge interface, which connects the native C++ parser library with the mobile application layers (iOS/Android).
