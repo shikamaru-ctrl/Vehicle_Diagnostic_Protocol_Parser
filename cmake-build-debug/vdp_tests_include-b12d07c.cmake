@@ -1,5 +1,0 @@
-if(EXISTS "C:/Users/prane/CLionProjects/VDPFrameParser/cmake-build-debug/vdp_tests_tests-b12d07c.cmake")
-  include("C:/Users/prane/CLionProjects/VDPFrameParser/cmake-build-debug/vdp_tests_tests-b12d07c.cmake")
-else()
-  add_test(vdp_tests_NOT_BUILT-b12d07c vdp_tests_NOT_BUILT-b12d07c)
-endif()
